@@ -38,7 +38,7 @@ example2
 
 example3 :: Net FunctionPy Expr
 example3
-  = Node [Variable "x"] (Gen normalDistribution) [Real 1.0, Variable "t"]
+  = Node [Variable "x"] (Gen normalDistribution) [Real 0.0, Variable "t"]
   $ Open [v "x", v "t"] []
 
 
@@ -131,6 +131,25 @@ pythonFooter = [__i|
     plt.show()
     |]
 
+pythonHeatmapFooter :: String
+pythonHeatmapFooter = [__i|
+    w0_numeric = sp.lambdify((x, t), w0, modules="numpy")
+
+    x_values = np.linspace(-1, 1, 500)
+    t_values = np.linspace(0.1, 1, 500)
+
+    X, T = np.meshgrid(x_values, t_values)
+    W0_values = w0_numeric(X, T)
+
+    plt.figure(figsize=(10, 8))
+    plt.contourf(T, X, W0_values, levels=50, cmap="viridis")
+    plt.colorbar(label="probability")
+    plt.title("Heat Map of w0(x, t)")
+    plt.xlabel("t")
+    plt.ylabel("x")
+    plt.show()
+    |]
+
 pythonizeNetwork :: Net (Func PythonFunction) Expr -> String
 pythonizeNetwork net = unlines
     [ pythonHeader
@@ -143,6 +162,20 @@ pythonizeNetwork net = unlines
     , "\n" ++ "# plotting"
     , pythonFooter
     ]
+
+pythonizeHeatmap :: Net (Func PythonFunction) Expr -> String
+pythonizeHeatmap net = unlines
+    [ pythonHeader
+    , "# function declaration"
+    , networkHeader net
+    , "# variable declaration"
+    , unlines $ (\v -> v ++ " = sp.Symbol(\'" ++ v ++ "\')" ) <$> nub (variableList net)
+    , "# probabilistic computations"
+    , pythonizeNet 0 net
+    , "\n" ++ "# plotting"
+    , pythonHeatmapFooter
+    ]
+    
 
 networkHeader :: Net (Func PythonFunction) Expr -> String
 networkHeader net = unlines $ declare <$> getFunctionsNet net
