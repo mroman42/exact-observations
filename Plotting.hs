@@ -1,8 +1,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE LambdaCase #-}
 
-
-module Plotting where
+module Plotting (plotHeatMap) where
 
 import Data.List
 import Data.Text qualified as TText
@@ -28,11 +27,13 @@ example =
      [9, 1, 0, 10, 2]]  
 
 plotHeatMap :: [[Double]] -> IO ()
-plotHeatMap map = executePython [__i|
+plotHeatMap map = do
+  executePython [__i|
     import numpy as np
     import seaborn as sns
     import matplotlib.pyplot as plt
+    sns.set_theme(style="white")
+    cmap = sns.diverging_palette(230, 20, as_cmap=True)
     heatmap_data = np.array(#{map})
-    sns.heatmap(heatmap_data, cmap="mako")
-    plt.show()
-    |]
+    sns.heatmap(heatmap_data, cmap=cmap)
+    plt.show()|]
