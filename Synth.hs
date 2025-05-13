@@ -10,8 +10,8 @@ import Data.String.Here
 import qualified Data.Set.Monad as Set
 import System.Process
 import Text.RawString.QQ
-import LazyPPL (uniform)
-import LazyPPL.Distributions (poisson)
+
+import Program
 
 
 executePython :: String -> IO String
@@ -19,10 +19,12 @@ executePython code = readProcess "python3" ["-c", code] ""
 
 example2 :: Prog FunctionPy Expr
 example2 
-  = Do ["x"] (Gen uniformDistribution) []
-  $ Return [v "x"]
+  = Do ["m"] (Gen uniformDistribution) [Real 0.5, Real 1.0]
+  $ Do ["y"] (Gen normalDistribution) [Variable "m", Real 1.0]
+  $ Observe "y" 2.1
+  $ Return [v "m"]
 
-type Var = String
+
 
 data PythonFunction = PythonFunction 
   { functionName :: String
@@ -33,6 +35,10 @@ data PythonFunction = PythonFunction
 instance Show PythonFunction where
   show :: PythonFunction -> String
   show (PythonFunction name args defn) = name
+
+instance Pythonize PythonFunction where
+  pythonize :: PythonFunction -> String
+  pythonize (PythonFunction name args defn) = name
   
 declare :: PythonFunction -> String
 declare (PythonFunction name args defn) =
@@ -40,7 +46,7 @@ declare (PythonFunction name args defn) =
   indent defn
   where
     indent = unlines . map ("    " ++) . lines 
-
+   
 exponential :: PythonFunction
 exponential = PythonFunction 
   { functionName = "exponential"
@@ -59,7 +65,7 @@ uniformDistribution :: PythonFunction
 uniformDistribution = PythonFunction
   { functionName = "uniform_distribution"
   , functionArgs = ["x", "a", "b"]
-  , functionDefn = "return 1/(b - a) if a <= x <= b else 0" 
+  , functionDefn = "return sp.Piecewise((0,x <= a) , (1/(b-a), x <= b), (0, True))" -- "return 1/(b - a) if a <= x <= b else 0" 
   }
 
 poissonDistribution :: PythonFunction
@@ -69,58 +75,9 @@ poissonDistribution = PythonFunction
   , functionDefn = "return (sp.exp(-lambda_) * lambda_**x) / sp.factorial(x)" 
   }
 
-data Func f = Gen f | Conditional Int (Func f) deriving Eq
 
-instance Show s => Show (Func s) where
-  show :: Func s -> String
-  show (Gen s) = show s
-  show (Conditional i f) = show f ++ "{" ++ show i ++ "}"
-
-type Function = Func String
 type FunctionPy = Func PythonFunction
 
-data Expr = Variable Var | Real Double deriving (Eq, Ord)
-
-data Prog f e
-  = Do [Var] f [e] (Prog f e)
-  | Observe Var Double (Prog f e)
-  | Return [Expr]
-
-type Program = Prog Function Expr
-
-
-v :: Var -> Expr
-v = Variable
-
-instance Show Expr where
-  show :: Expr -> String
-  show (Variable v) = v
-  show (Real r) = show r
-
-instance (Show f) => Show (Prog f Expr) where
-  show :: (Show f) => Prog f Expr -> String
-  show (Do ys f xs program) = show ys ++ " <- " ++ show f ++ show xs ++ "\n" ++ show program
-  show (Observe v d program) = "observe " ++ show v ++ " == " ++ show d ++ "\n" ++ show program
-  show (Return vars) = "return" ++ show vars
-
-reduce :: Prog (Func f) Expr -> Prog (Func f) Expr
-reduce (Observe v d program) = Observe v d $ reduce program
-reduce (Do ys f xs (Observe v d program)) =
-   case v `elemIndex` ys of
-    Nothing -> reduce $ Observe v d (Do ys f xs program) -- Interchange
-    Just i  -> reduce $ Do (delete v ys) (Conditional i f) (Real d : xs) (replaceVarValue v d program)
-reduce (Return xs) = Return xs
-reduce other = other
-
-replace :: (Expr -> Expr) -> Prog f Expr -> Prog f Expr
-replace h (Return xs) = Return (h <$> xs)
-replace h (Do ys f xs p) = Do ys f (h <$> xs) (replace h p)
-replace h (Observe v d p) = Observe v d (replace h p)
-
-replaceVarValue :: Var -> Double -> Prog f Expr -> Prog f Expr
-replaceVarValue v d = replace (\case
-    Variable w | w == v -> Real d
-    other               -> other)
 
 example1 :: Program
 example1
@@ -147,18 +104,53 @@ hiddenVars hidden (Do ys _ _ p)   = hiddenVars (hidden `Set.union` Set.fromList 
 getHiddenVars :: Prog f Expr -> [Var]
 getHiddenVars = Set.toList . hiddenVars Set.empty
 
-formatProgram :: (Pythonize f) => Prog (Func f) Expr -> String
-formatProgram program = header ++ "\n" ++ pythonize 0 program ++ footer
+formatProgramHeader :: Prog (Func PythonFunction) Expr -> String
+formatProgramHeader program = unlines $ declare <$> getFunctionLabels program
+
+formatProgram :: Prog (Func PythonFunction) Expr -> String
+formatProgram program = header ++ "\n" ++ pythonize 0 program ++ "\n" ++ footer ++ "\n"
   where
     header = [__i|
       import sympy as sp
+      import numpy as np
+      import matplotlib.pyplot as plt
+
+      from sympy.abc import x, y, z, m
       def f(u1,u2,u3,u4): return sp.sin(u1) + sp.cos(u3)
       def g(u1,u2,u3): return sp.sin(u1) + sp.cos(u3)
-      x = sp.Symbol('x')
-      y = sp.Symbol('y')
-      z = sp.Symbol('z')
-      v1 = sp.Symbol('v1')|]
-    footer = ""
+      v0 = sp.Symbol('v0')
+      v1 = sp.Symbol('v1')
+      |]
+      ++ "\n" ++ formatProgramHeader program
+    footer = [__i|
+      f_numeric = sp.lambdify(m, w1, modules="numpy")
+      f_numeric_vectorized = np.vectorize(f_numeric)
+      m_values = np.linspace(-10, 10, 500)  
+      f_values = f_numeric_vectorized(m_values)
+      
+      plt.figure(figsize=(8, 6))
+      plt.plot(m_values, f_values, label='w0(m)')
+      plt.title('Plot of w0(m)')
+      plt.xlabel('m')
+      plt.ylabel('w0(m)')
+      plt.legend()
+      plt.grid(True)
+      plt.show()
+      |]
+
+      -- f_numeric = sp.lambdify(m, w1, 'numpy')
+
+      -- values = np.linspace(-10, 10, 500)
+      -- f_values = f_numeric(values)
+
+      -- plt.figure(figsize=(8, 6))
+      -- plt.plot(values, f_values, label='f(v)')
+      -- plt.title('Plot of f(v)')
+      -- plt.xlabel('v')
+      -- plt.ylabel('f(v)')
+      -- plt.legend()
+      -- plt.grid(True)
+      -- plt.show()
 
     pythonize n (Do ys f xs program) =
       "w" ++ show n ++ " = " ++ pythonizeFunction f ys xs ++ "\n" ++ pythonize (n+1) program
@@ -171,9 +163,11 @@ formatProgram program = header ++ "\n" ++ pythonize 0 program ++ footer
 
 pythonizeFunction :: (Pythonize f) => Func f -> [Var] -> [Expr] -> String
 pythonizeFunction (Gen f) ys xs =
-    pythonize f ++ "(" ++ intercalate "," ys ++ "," ++ intercalate "," (map show xs) ++ ")"
+  if null ys
+  then pythonize f ++ "(" ++ intercalate "," (map show xs) ++ ")"
+  else pythonize f ++ "(" ++ intercalate "," ys ++ "," ++ intercalate "," (map show xs) ++ ")"
 pythonizeFunction (Conditional i f) ys xs = 
-    "(" ++ pythonizeFunction f ys xs ++ ")/(" ++ " sp.integrate(" ++ pythonizeFunction f ys (setAt i (Variable v) xs) ++ ", " ++ v ++ "))"
+    "(" ++ pythonizeFunction f ys xs ++ ")/(" ++ " sp.integrate(" ++ pythonizeFunction f ys (setAt i (Variable v) xs) ++ ", (" ++ v ++ ", -10, 10)" ++ "))"
   where
     v = "v" ++ show i
 
@@ -202,3 +196,38 @@ main = do
     |]
   putStrLn output
 
+
+pythonizeNet :: Int -> Net (Func PythonFunction) Expr -> String
+pythonizeNet n (Node ys f xs p) = "w" ++ show n ++ " = " ++ pythonizeFunction f ys xs ++ "\n" ++ pythonizeNet (n+1) p
+pythonizeNet n (Open xs) = "\n"
+
+pythonizeNetwork :: Net (Func PythonFunction) Expr -> String
+pythonizeNetwork net = header ++ "\n" ++ pythonizeNet 0 net ++ "\n" ++ footer ++ "\n"
+  where
+    header = [__i|
+      import sympy as sp
+      import numpy as np
+      import matplotlib.pyplot as plt
+
+      from sympy.abc import x, y, z, m
+      def f(u1,u2,u3,u4): return sp.sin(u1) + sp.cos(u3)
+      def g(u1,u2,u3): return sp.sin(u1) + sp.cos(u3)
+      v0 = sp.Symbol('v0')
+      v1 = sp.Symbol('v1')
+      |]
+      ++ "\n" ++ formatProgramHeader p
+    footer = [__i|
+      f_numeric = sp.lambdify(m, w1, modules="numpy")
+      f_numeric_vectorized = np.vectorize(f_numeric)
+      m_values = np.linspace(-10, 10, 500)  
+      f_values = f_numeric_vectorized(m_values)
+      
+      plt.figure(figsize=(8, 6))
+      plt.plot(m_values, f_values, label='w0(m)')
+      plt.title('Plot of w0(m)')
+      plt.xlabel('m')
+      plt.ylabel('w0(m)')
+      plt.legend()
+      plt.grid(True)
+      plt.show()
+      |]
