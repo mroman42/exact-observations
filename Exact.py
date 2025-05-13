@@ -1,6 +1,7 @@
 import sympy as sp
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm  # Import LogNorm from matplotlib.colors
 
 
 # Example: Define a symbolic variable
@@ -55,9 +56,9 @@ W0_values = w0_numeric(X, T)
 # Plot the heat map with swapped axes and logarithmic color scale
 plt.figure(figsize=(10, 8))
 # Swap axes by passing T as the x-axis and X as the y-axis
-plt.contourf(T, X, W0_values, levels=50, cmap="viridis")
+plt.contourf(T, X, W0_values, levels=50, cmap="viridis", norm)
 plt.colorbar(label="log(w0(x, t))")
-plt.title("Heat Map of w0(x, t)")
+plt.title("Heat Map of w0(x, t) with Logarithmic Color Scale")
 plt.xlabel("t")
 plt.ylabel("x")
 plt.show()

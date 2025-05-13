@@ -11,6 +11,7 @@ import qualified Data.Set.Monad as Set
 import System.Process
 import Text.RawString.QQ
 
+
 import Program
 
 class Pythonize a where
@@ -109,10 +110,11 @@ pythonizeNet n (Open os cs) =
 
 pythonHeader :: String
 pythonHeader = [__i|
-    import sympy as sp
-    import numpy as np
-    import matplotlib.pyplot as plt
-    |] ++ "\n"
+  import sympy as sp
+  import numpy as np
+  import matplotlib.pyplot as plt
+  from matplotlib.colors import LogNorm
+  |] ++ "\n"
 
 pythonFooter :: String
 pythonFooter = [__i|
@@ -137,7 +139,6 @@ pythonHeatmapFooter = [__i|
 
     x_values = np.linspace(-1, 1, 500)
     t_values = np.linspace(0.1, 1, 500)
-
     X, T = np.meshgrid(x_values, t_values)
     W0_values = w0_numeric(X, T)
 
