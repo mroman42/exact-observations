@@ -79,13 +79,13 @@ getFunctionLabels (Do ys (Conditional i f) xs p) = getFunctionLabels $ Do ys f x
 
 data Net f e
   = Node [e] f [e] (Net f e)
-  | Open [e]
+  | Open [e] [e]
 type Network = Net Function Expr
 
 instance (Show f) => Show (Net f Expr) where
   show :: (Show f) => Net f Expr -> String
   show (Node ys f xs p) = show ys ++ " <- " ++ show f ++ show xs ++ "\n" ++ show p
-  show (Open xs) = "open " ++ show xs
+  show (Open os cs) = "open " ++ show os ++ " closed " ++ show cs
 
 getSubstitutions :: Prog f Expr -> Map.Map Var Double
 getSubstitutions (Return xs) = Map.empty
@@ -104,7 +104,7 @@ substituteVar m v = case Map.lookup v m of
   Nothing -> Variable v
 
 substituteToNetwork :: Map.Map Var Double -> Prog f Expr -> Net f Expr
-substituteToNetwork m (Return xs) = Open (substitute m <$> xs)
+substituteToNetwork m (Return xs) = Open (substitute m <$> xs) []
 substituteToNetwork m (Observe v d p) = substituteToNetwork m p
 substituteToNetwork m (Do ys f xs p) = Node (substituteVar m <$> ys) f (substitute m <$> xs) (substituteToNetwork m p)
 
@@ -118,8 +118,8 @@ varsOnly (Real _ : xs) = varsOnly xs
 
 variableList :: Net f Expr -> [Var]
 variableList (Node ys f xs p) = varsOnly ys ++ varsOnly xs ++ variableList p
-variableList (Open xs) = varsOnly xs
+variableList (Open os cs) = varsOnly os ++ varsOnly cs
 
 getFunctionsNet :: Net (Func f) Expr -> [f]
 getFunctionsNet (Node ys (Gen f) xs p) = f : getFunctionsNet p
-getFunctionsNet (Open xs) = []
+getFunctionsNet (Open os cs) = []

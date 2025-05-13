@@ -23,26 +23,26 @@ instance Pythonize String where
 instance Pythonize Expr where
   pythonize :: Expr -> String
   pythonize (Variable v) = v
-  pythonize (Real r) = show r  
+  pythonize (Real r) = show r
 
 
 executePython :: String -> IO String
 executePython code = readProcess "python3" ["-c", code] ""
 
 example2 :: Prog FunctionPy Expr
-example2 
+example2
   = Do ["m"] (Gen uniformDistribution) [Real 0, Real 1.0]
   $ Do ["y"] (Gen normalDistribution) [Variable "m", Real 1.0]
   $ Observe "y" 2.1
   $ Return [v "m"]
 
-example3 :: Prog FunctionPy Expr
-example3 
-  = Do ["x"] (Gen normalDistribution) [Real 1.0, Variable "t"]
-  $ Return [v "x", v "t"]
+example3 :: Net FunctionPy Expr
+example3
+  = Node [Variable "x"] (Gen normalDistribution) [Real 1.0, Variable "t"]
+  $ Open [v "x", v "t"] []
 
 
-data PythonFunction = PythonFunction 
+data PythonFunction = PythonFunction
   { functionName :: String
   , functionArgs :: [String]
   , functionDefn :: String
@@ -55,26 +55,26 @@ instance Show PythonFunction where
 instance Pythonize PythonFunction where
   pythonize :: PythonFunction -> String
   pythonize (PythonFunction name args defn) = name
-  
+
 declare :: PythonFunction -> String
 declare (PythonFunction name args defn) =
   "def " ++ name ++ "(" ++ intercalate ", " args ++ "):\n" ++
   indent defn
   where
-    indent = unlines . map ("    " ++) . lines 
-   
+    indent = unlines . map ("    " ++) . lines
+
 exponential :: PythonFunction
-exponential = PythonFunction 
+exponential = PythonFunction
   { functionName = "exponential"
   , functionArgs = ["x"]
-  , functionDefn = "return sp.exp(x)" 
+  , functionDefn = "return sp.exp(x)"
   }
 
 normalDistribution :: PythonFunction
-normalDistribution = PythonFunction 
+normalDistribution = PythonFunction
   { functionName = "normal_distribution"
   , functionArgs = ["x", "mu", "sigma"]
-  , functionDefn = "return (1/(sigma * sp.sqrt(2 * sp.pi))) * sp.exp(-0.5 * ((x - mu)/sigma)**2)" 
+  , functionDefn = "return (1/(sigma * sp.sqrt(2 * sp.pi))) * sp.exp(-0.5 * ((x - mu)/sigma)**2)"
   }
 
 uniformDistribution :: PythonFunction
@@ -88,7 +88,7 @@ poissonDistribution :: PythonFunction
 poissonDistribution = PythonFunction
   { functionName = "poisson_distribution"
   , functionArgs = ["x", "lambda_"]
-  , functionDefn = "return (sp.exp(-lambda_) * lambda_**x) / sp.factorial(x)" 
+  , functionDefn = "return (sp.exp(-lambda_) * lambda_**x) / sp.factorial(x)"
   }
 
 
@@ -101,16 +101,19 @@ pythonizeFunction (Gen f) ys xs = functionName f ++ "(" ++ intercalate ", " (map
 
 pythonizeNet :: Int -> Net (Func PythonFunction) Expr -> String
 pythonizeNet n (Node ys f xs p) = "w" ++ show n ++ " = " ++ pythonizeFunction f ys xs ++ "\n" ++ pythonizeNet (n+1) p
-pythonizeNet n (Open (Variable x:xs)) = "oo = " ++ multiplication ++ "/ sp.integrate(" ++ multiplication ++ ", (" ++ x ++ ", -2, 2))"
-  where multiplication = intercalate " * " (("w" ++) . show <$> [0..n-1])
+pythonizeNet n (Open os cs) = 
+    "oo = " ++ multiplication ++ "/ sp.integrate(" ++ multiplication ++ ", " ++ openIntegrations os ++ ")"
+  where
+    multiplication = intercalate " * " (("w" ++) . show <$> [0..n-1])
+    openIntegrations os = intercalate ", " $ map (\x -> "(" ++ show x ++ ", -2, 2)") os
 
 pythonHeader :: String
 pythonHeader = [__i|
     import sympy as sp
     import numpy as np
     import matplotlib.pyplot as plt
-    |] ++ "\n"  
-    
+    |] ++ "\n"
+
 pythonFooter :: String
 pythonFooter = [__i|
     f_numeric = sp.lambdify(m, oo, modules="numpy")
@@ -127,9 +130,9 @@ pythonFooter = [__i|
     plt.grid(True)
     plt.show()
     |]
-      
+
 pythonizeNetwork :: Net (Func PythonFunction) Expr -> String
-pythonizeNetwork net = unlines 
+pythonizeNetwork net = unlines
     [ pythonHeader
     , "# function declaration"
     , networkHeader net
