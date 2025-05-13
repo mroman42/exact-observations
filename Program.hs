@@ -117,7 +117,7 @@ varsOnly (Variable v : xs) = v : varsOnly xs
 varsOnly (Real _ : xs) = varsOnly xs
 
 variableList :: Net f Expr -> [Var]
-variableList (Node ys f xs p) = varsOnly ys ++ variableList p
+variableList (Node ys f xs p) = varsOnly ys ++ varsOnly xs ++ variableList p
 variableList (Open xs) = varsOnly xs
 
 getFunctionsNet :: Net (Func f) Expr -> [f]

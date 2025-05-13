@@ -36,6 +36,10 @@ example2
   $ Observe "y" 2.1
   $ Return [v "m"]
 
+example3 :: Prog FunctionPy Expr
+example3 
+  = Do ["x"] (Gen normalDistribution) [Real 1.0, Variable "t"]
+  $ Return [v "x", v "t"]
 
 
 data PythonFunction = PythonFunction 
@@ -91,8 +95,6 @@ poissonDistribution = PythonFunction
 type FunctionPy = Func PythonFunction
 
 
-
-
 pythonizeFunction :: Func PythonFunction -> [Expr] -> [Expr] -> String
 pythonizeFunction (Gen f) [] xs = functionName f ++ "(" ++ intercalate ", " (map pythonize xs) ++ ")"
 pythonizeFunction (Gen f) ys xs = functionName f ++ "(" ++ intercalate ", " (map pythonize ys) ++ ", " ++ intercalate ", " (map pythonize xs) ++ ")"
@@ -100,40 +102,44 @@ pythonizeFunction (Gen f) ys xs = functionName f ++ "(" ++ intercalate ", " (map
 pythonizeNet :: Int -> Net (Func PythonFunction) Expr -> String
 pythonizeNet n (Node ys f xs p) = "w" ++ show n ++ " = " ++ pythonizeFunction f ys xs ++ "\n" ++ pythonizeNet (n+1) p
 pythonizeNet n (Open (Variable x:xs)) = "oo = " ++ multiplication ++ "/ sp.integrate(" ++ multiplication ++ ", (" ++ x ++ ", -2, 2))"
-  where
-    multiplication = intercalate " * " (("w" ++) . show <$> [0..n-1])
+  where multiplication = intercalate " * " (("w" ++) . show <$> [0..n-1])
 
+pythonHeader :: String
+pythonHeader = [__i|
+    import sympy as sp
+    import numpy as np
+    import matplotlib.pyplot as plt
+    |] ++ "\n"  
+    
+pythonFooter :: String
+pythonFooter = [__i|
+    f_numeric = sp.lambdify(m, oo, modules="numpy")
+    f_numeric_vectorized = np.vectorize(f_numeric)
+    m_values = np.linspace(-2, 2, 500)  
+    f_values = f_numeric_vectorized(m_values)
+    
+    plt.figure(figsize=(8, 6))
+    plt.plot(m_values, f_values, label='w0(m)')
+    plt.title('Plot of out(m)')
+    plt.xlabel('m')
+    plt.ylabel('out(m)')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    |]
+      
 pythonizeNetwork :: Net (Func PythonFunction) Expr -> String
 pythonizeNetwork net = unlines 
-    [ header
+    [ pythonHeader
+    , "# function declaration"
+    , networkHeader net
+    , "# variable declaration"
+    , unlines $ (\v -> v ++ " = sp.Symbol(\'" ++ v ++ "\')" ) <$> nub (variableList net)
+    , "# probabilistic computations"
     , pythonizeNet 0 net
-    , footer
+    , "\n" ++ "# plotting"
+    , pythonFooter
     ]
-  where
-    header = [__i|
-      import sympy as sp
-      import numpy as np
-      import matplotlib.pyplot as plt
-
-      from sympy.abc import x, y, z, m
-      |]
-      ++ "\n" ++ networkHeader net
-
-    footer = [__i|
-      f_numeric = sp.lambdify(m, oo, modules="numpy")
-      f_numeric_vectorized = np.vectorize(f_numeric)
-      m_values = np.linspace(-2, 2, 500)  
-      f_values = f_numeric_vectorized(m_values)
-      
-      plt.figure(figsize=(8, 6))
-      plt.plot(m_values, f_values, label='w0(m)')
-      plt.title('Plot of out(m)')
-      plt.xlabel('m')
-      plt.ylabel('out(m)')
-      plt.legend()
-      plt.grid(True)
-      plt.show()
-      |]
 
 networkHeader :: Net (Func PythonFunction) Expr -> String
 networkHeader net = unlines $ declare <$> getFunctionsNet net
