@@ -20,20 +20,28 @@ executePython code = do
   _ <- readProcess "python3" ["-c", code] ""
   return ()
 
+writeCSV :: FilePath -> [[Double]] -> IO ()
+writeCSV filePath dataList = do
+  let csvContent = unlines $ map (intercalate "," . map show) dataList
+  writeFile filePath csvContent  
+
 example :: [[Double]]
 example = 
     [[1, 2, 3, 4, 4],
      [4, 2, 3, 3, 4],
      [9, 1, 0, 10, 2]]  
-
+     
+     
 plotHeatMap :: [[Double]] -> IO ()
 plotHeatMap map = do
+  writeCSV "heatmap.csv" map
   executePython [__i|
     import numpy as np
     import seaborn as sns
     import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
     sns.set_theme(style="white")
-    cmap = sns.diverging_palette(230, 20, as_cmap=True)
-    heatmap_data = np.array(#{map})
+    cmap = sns.color_palette("mako", as_cmap=True)
+    heatmap_data = np.loadtxt("heatmap.csv", delimiter=",")
     sns.heatmap(heatmap_data, cmap=cmap)
     plt.show()|]
