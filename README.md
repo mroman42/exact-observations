@@ -1,4 +1,4 @@
 # Experiments on exact observations
 
-!(poisson-decay.png)
-!(brownian.png)
+!(Poisson decay, with two observations)[poisson-decay.png]
+!(Brownian motion, with three observations)[brownian.png]
