@@ -3,7 +3,6 @@ module Main where
 import Data.List
 
 import Plotting
-import NormalExample
 import Observation
 
 
